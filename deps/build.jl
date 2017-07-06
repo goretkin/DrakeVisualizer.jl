@@ -17,8 +17,10 @@ function cflags_validator(pkg_names...)
 end
 
 basedir = dirname(@__FILE__)
-director_version = "0.1.0-130-g4109097" 
-director_sha = "4109097ab03fe2728bf6ac9a9be1be952e449153"
+director_version = "0.1.0-130-g4109097"
+director_sha = "7ce9a5aa02df24e320c63639b4cc36c77bfe6b65"
+
+force_source_build = lowercase(get(ENV, "DIRECTOR_BUILD_FROM_SOURCE", "")) in ["true", "1"]
 
 @static if is_linux()
     deps = [
@@ -40,8 +42,6 @@ director_sha = "4109097ab03fe2728bf6ac9a9be1be952e449153"
     end
 
     provides(AptGet, Dict("libqt4-dev"=>qt4, "libqt4-opengl-dev"=>qt4_opengl, "python-dev"=>python))
-
-    force_source_build = lowercase(get(ENV, "DIRECTOR_BUILD_FROM_SOURCE", "")) in ["true", "1"]
 
     director_binary = nothing
     if !force_source_build
@@ -85,12 +85,32 @@ elseif is_apple()
     deps = [
         director = library_dependency("vtkDRCFilters", aliases=["libvtkDRCFilters.dylib"])
     ]
-    provides(BuildProcess, (@build_steps begin
-        FileDownloader("http://people.csail.mit.edu/patmarion/software/director/releases/director-$(director_version)-mac.tar.gz",
-                       joinpath(basedir, "downloads", "director.tar.gz"))
-        CreateDirectory(joinpath(basedir, "usr"))
-        (`tar xzf $(joinpath(basedir, "downloads", "director.tar.gz")) --directory=usr --strip-components=1`)
-    end), director)
+
+    if !force_source_build
+      provides(BuildProcess, (@build_steps begin
+          FileDownloader("http://people.csail.mit.edu/patmarion/software/director/releases/director-$(director_version)-mac.tar.gz",
+                         joinpath(basedir, "downloads", "director.tar.gz"))
+          CreateDirectory(joinpath(basedir, "usr"))
+          (`tar xzf $(joinpath(basedir, "downloads", "director.tar.gz")) --directory=usr --strip-components=1`)
+      end), director)
+    else
+      using Homebrew
+      Homebrew.brew(`tap homebrew/python`)
+      Homebrew.brew(`tap patmarion/director`)
+      Homebrew.brew(`tap-pin patmarion/director`)
+      Homebrew.brew(`install cmake python numpy qt vtk7 eigen`)
+
+      provides(Sources,
+               URI("https://github.com/RobotLocomotion/director/archive/$(director_sha).zip"),
+               director,
+               unpacked_dir="director-$(director_sha)")
+      provides(CMakeProcess(srcdir=joinpath(basedir, "src",
+                                            "director-$(director_sha)", "distro", "superbuild"),
+                            cmake_args=["-DUSE_LCM=ON",
+                                        "-DUSE_EXTERNAL_INSTALL:BOOL=ON"],
+                            targetname=""),
+               director)
+    end
 
 end
 
